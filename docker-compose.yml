@@ -1,0 +1,135 @@
+name: trendcraft
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://trendcraft:trendcraft@postgres:5432/trendcraft
+  REDIS_URL: redis://redis:6379/0
+  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-gemini-3.6-flash}
+  LLM_FAST_MODEL: ${LLM_FAST_MODEL:-gemini-3.5-flash}
+  VISION_MODEL: ${VISION_MODEL:-gemini-3.6-flash}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-gemini}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
+  EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
+  ANALYSIS_CONCURRENCY: ${ANALYSIS_CONCURRENCY:-6}
+  YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+  APIFY_TOKEN: ${APIFY_TOKEN:-}
+  APIFY_TIKTOK_ACTOR: ${APIFY_TIKTOK_ACTOR:-}
+  APIFY_INSTAGRAM_ACTOR: ${APIFY_INSTAGRAM_ACTOR:-}
+  INSTAGRAM_SEED_ACCOUNTS: ${INSTAGRAM_SEED_ACCOUNTS:-}
+  TIKTOK_PROVIDER_URL: ${TIKTOK_PROVIDER_URL:-}
+  TIKTOK_PROVIDER_TOKEN: ${TIKTOK_PROVIDER_TOKEN:-}
+  INSTAGRAM_PROVIDER_URL: ${INSTAGRAM_PROVIDER_URL:-}
+  INSTAGRAM_PROVIDER_TOKEN: ${INSTAGRAM_PROVIDER_TOKEN:-}
+  # Engine tuning. Without these the containers silently fall back to the
+  # defaults in app/core/config.py and edits to .env appear to do nothing.
+  MIN_CLUSTER_SIZE: ${MIN_CLUSTER_SIZE:-4}
+  CLUSTER_SIMILARITY_THRESHOLD: ${CLUSTER_SIMILARITY_THRESHOLD:-0.62}
+  TREND_HALF_LIFE_HOURS: ${TREND_HALF_LIFE_HOURS:-96}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3010","http://127.0.0.1:3010"]}
+
+services:
+  postgres:
+    # pgvector ships as a Postgres image variant; no manual extension build needed.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: trendcraft
+      POSTGRES_PASSWORD: trendcraft
+      POSTGRES_DB: trendcraft
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trendcraft -d trendcraft"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment: *backend-env
+    ports:
+      - "8010:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/seed:/app/seed
+      - ./backend/scripts:/app/scripts
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: ./backend
+    environment: *backend-env
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/seed:/app/seed
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=info --concurrency=2
+    # The image's HTTP healthcheck belongs to the API; a worker serves no port.
+    healthcheck:
+      # CMD-SHELL, not exec form: the destination needs $HOSTNAME expanded, and
+      # pinging this specific worker is the point — a broker-wide ping would pass
+      # while this container was dead.
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.workers.celery_app.celery_app inspect ping -d celery@$$HOSTNAME",
+        ]
+      # Generous timeouts on purpose: each probe boots a fresh Celery CLI, which
+      # imports numpy, scikit-learn and the ORM before it can talk to the broker.
+      interval: 60s
+      timeout: 30s
+      start_period: 60s
+      retries: 3
+
+  beat:
+    build: ./backend
+    environment: *backend-env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+    command: celery -A app.workers.celery_app.celery_app beat --loglevel=info
+    # Beat is a scheduler with no inspectable queue and no port — the inherited
+    # HTTP check would always fail, so it is disabled rather than faked.
+    healthcheck:
+      disable: true
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8010/api/v1
+    environment:
+      # Server components call the API over the compose network; the browser
+      # reaches it through the published port.
+      API_URL: http://api:8000/api/v1
+      NEXT_PUBLIC_API_URL: http://localhost:8010/api/v1
+    ports:
+      - "3010:3000"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  pgdata:

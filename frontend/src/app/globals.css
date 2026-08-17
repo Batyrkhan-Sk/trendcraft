@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+/*
+ * TrendCraft design tokens.
+ *
+ * Dark-committed rather than dark-first-with-a-light-fallback: this is an
+ * always-on monitoring surface, and a half-considered light theme would read
+ * worse than none. Every colour lives here as a token so a light mode is a
+ * single block away if it is ever wanted.
+ *
+ * Chrome colours (brand violet/cyan) and data colours (the validated
+ * categorical + status sets below) are deliberately disjoint, so a brand accent
+ * can never be mistaken for a series.
+ */
+
+@theme {
+  /* --- surfaces: near-black canvas, three levels of elevation --- */
+  --color-canvas: #08090a;
+  --color-surface: #0e1013;
+  --color-surface-2: #14171b;
+  --color-surface-3: #1b1f24;
+  --color-overlay: #0a0b0dcc;
+
+  /* --- hairlines --- */
+  --color-line: #1e2329;
+  --color-line-strong: #2a3037;
+  --color-line-soft: #16191d;
+
+  /* --- ink --- */
+  --color-ink: #f2f4f6;
+  --color-ink-secondary: #a2abb5;
+  --color-ink-muted: #6d7681;
+  --color-ink-faint: #4b535c;
+
+  /* --- brand (chrome only, never a data series) --- */
+  --color-brand: #7c5cff;
+  --color-brand-soft: #7c5cff1f;
+  --color-brand-line: #7c5cff40;
+  --color-accent: #22d3ee;
+
+  /* --- data: categorical series, validated on #101214 dark surface --- */
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+
+  /* --- data: reserved status roles, always paired with an icon + label --- */
+  --color-state-good: #0ca30c;
+  --color-state-warning: #fab219;
+  --color-state-serious: #ec835a;
+  --color-state-critical: #d03b3b;
+  --color-state-new: #3987e5;
+
+  /* --- chart chrome --- */
+  --color-grid: #1c2026;
+  --color-axis: #2b3138;
+
+  --radius-card: 14px;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+  }
+
+  /* Headings run tight; this is an information surface, not a marketing page. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: var(--color-brand-soft);
+    color: var(--color-ink);
+  }
+
+  /* Slim scrollbars so dense lists don't lose width to chrome. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border: 3px solid var(--color-canvas);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #39414a;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  /* Ambient page wash — one soft brand bloom behind the top of the canvas,
+     borrowed from media-generation UIs. Kept very low alpha so it reads as
+     depth rather than decoration. */
+  .bloom::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 420px;
+    pointer-events: none;
+    background:
+      radial-gradient(60% 100% at 18% 0%, #7c5cff14, transparent 70%),
+      radial-gradient(50% 100% at 82% 0%, #22d3ee0f, transparent 70%);
+    z-index: 0;
+  }
+
+  .gradient-text {
+    background: linear-gradient(96deg, var(--color-ink) 20%, #b9a8ff 60%, #7fe6f2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hairline {
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Horizontal rails: scrollable on small screens, no visible scrollbar. */
+  .rail {
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-surface-2);
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, #ffffff0a, transparent);
+    animation: shimmer 1.6s infinite;
+  }
+}
