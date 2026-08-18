@@ -28,15 +28,32 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=8, help="How many trends to narrate")
     parser.add_argument("--min-videos", type=int, default=4)
-    # The daily quota is per model, so a second model is a second budget.
-    parser.add_argument("--model", default=None, help="Override the narration model")
+    # The free-tier daily quota is per project PER MODEL, so each model is an
+    # independent budget. Rather than making the operator discover which ones are
+    # spent by trial and error, walk the list and move on when one is exhausted.
+    parser.add_argument(
+        "--models",
+        default=None,
+        help="Comma-separated fallback chain (default: configured model, then siblings)",
+    )
     args = parser.parse_args()
 
     if not llm.available():
         print("No GOOGLE_API_KEY configured — nothing to do.")
         return 1
-    if args.model:
-        llm.settings.llm_model = args.model
+    chain = (
+        [m.strip() for m in args.models.split(",") if m.strip()]
+        if args.models
+        else [
+            llm.settings.llm_model,
+            "gemini-3.7-flash",
+            "gemini-3.5-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-latest",
+        ]
+    )
+    # Preserve order while removing duplicates.
+    chain = list(dict.fromkeys(chain))
 
     with SessionLocal() as db:
         trends = db.scalars(
@@ -46,8 +63,10 @@ def main() -> int:
             .limit(args.limit)
         ).all()
 
-        print(f"Narrating {len(trends)} trends with {llm.settings.llm_model}\n")
+        print(f"Narrating {len(trends)} trends")
+        print(f"Model chain: {' → '.join(chain)}\n")
         done = 0
+        model_index = 0
 
         for trend in trends:
             rows = db.execute(
@@ -87,10 +106,28 @@ def main() -> int:
             }
 
             before = trend.name
-            story = narrative.describe_cluster(analyses, stats)
 
-            if story.get("_model") == "deterministic":
-                print(f"  ✗ quota exhausted at trend {done + 1} — stopping cleanly")
+            # Advance through the chain until a model has budget left. The client
+            # records exhausted models, so this costs one failed call per model
+            # rather than one per trend.
+            story = None
+            while model_index < len(chain):
+                llm.settings.llm_model = chain[model_index]
+                if llm.is_exhausted(chain[model_index]):
+                    model_index += 1
+                    continue
+                story = narrative.describe_cluster(analyses, stats)
+                if story.get("_model") != "deterministic":
+                    break
+                # Could be a spent daily quota or a transient 503; the client
+                # already retried the retryable case, so either way move on.
+                reason = "quota spent" if llm.is_exhausted(chain[model_index]) else "unavailable"
+                print(f"  · {chain[model_index]} {reason}, trying next")
+                model_index += 1
+                story = None
+
+            if story is None:
+                print(f"  ✗ all {len(chain)} models exhausted — stopping cleanly")
                 break
 
             trend.name = story["name"]
@@ -101,7 +138,7 @@ def main() -> int:
             trend.format_structure = story.get("format_structure", [])
             db.commit()
             done += 1
-            print(f"  ✓ {before[:34]:<34} → {trend.name}")
+            print(f"  ✓ [{chain[model_index]}] {before[:28]:<28} → {trend.name}")
 
         print(f"\nNarrated {done} of {len(trends)}.")
     return 0
