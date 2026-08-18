@@ -15,6 +15,12 @@ The distinction the whole product rests on:
 
 ---
 
+## Deploy
+
+- Link to the platform: https://trendcraft-bk.duckdns.org/
+
+---
+
 ## Quick start
 
 ```bash
