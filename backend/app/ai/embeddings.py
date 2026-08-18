@@ -131,26 +131,62 @@ def cosine(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> float:
     return float(np.dot(va, vb) / (na * nb))
 
 
-def format_signature(analysis: dict) -> str:
+#: Placeholders the heuristic tier emits when it cannot observe a field.
+_UNINFORMATIVE = {"", "unknown", "none", "platform default", "original audio"}
+
+
+def _useful(value: str | None) -> str:
+    return "" if not value or str(value).strip().lower() in _UNINFORMATIVE else str(value)
+
+
+def format_signature(analysis: dict, caption: str = "", hashtags: list | None = None) -> str:
     """Build the text that gets embedded for one video.
 
-    Deliberately weighted toward *structural* fields. The topic is included once,
-    the format/structure/style fields several times, so two videos about different
-    subjects shot in the same format land close together.
+    Normally weighted toward *structural* fields — format, narrative beats,
+    editing — so two videos on unrelated subjects shot the same way land close
+    together. Topic appears once, structure several times.
+
+    That inverts when the analysis came from the heuristic tier. Heuristics pick
+    a ``content_format`` from a handful of keyword rules and leave most other
+    fields as "unknown", so every video's signature becomes nearly identical and
+    the whole corpus collapses into one cluster regardless of threshold.
+
+    When the structural fields carry no information, fall back to the caption and
+    hashtags. That clusters closer to *topic* than to format, which is a real
+    downgrade — but a topic-clustered corpus is far more useful than a single
+    undifferentiated blob, and the fallback disappears as soon as the LLM tier
+    can run.
     """
-    structure = analysis.get("narrative_structure") or []
-    editing = analysis.get("editing_patterns") or []
-    parts = [
-        analysis.get("content_format", ""),
-        analysis.get("content_format", ""),
-        " ".join(str(s) for s in structure),
-        " ".join(str(s) for s in structure),
-        analysis.get("hook", ""),
-        analysis.get("visual_style", ""),
-        analysis.get("speaking_style", ""),
-        " ".join(str(e) for e in editing),
-        analysis.get("emotional_tone", ""),
-        analysis.get("main_message", ""),
-        analysis.get("topic", ""),
-    ]
+    structure = [str(s) for s in (analysis.get("narrative_structure") or [])]
+    editing = [str(e) for e in (analysis.get("editing_patterns") or [])]
+
+    content_format = _useful(analysis.get("content_format"))
+    visual = _useful(analysis.get("visual_style"))
+    speaking = _useful(analysis.get("speaking_style"))
+    tone = _useful(analysis.get("emotional_tone"))
+
+    # Structural signal is present only if the extractor actually observed craft
+    # details, not just matched a caption keyword.
+    has_structure = bool(visual or speaking or editing)
+
+    if has_structure:
+        parts = [
+            content_format, content_format,
+            " ".join(structure), " ".join(structure),
+            _useful(analysis.get("hook")),
+            visual, speaking, " ".join(editing), tone,
+            _useful(analysis.get("main_message")),
+            _useful(analysis.get("topic")),
+        ]
+    else:
+        tags = " ".join(str(h).lstrip("#") for h in (hashtags or []))
+        parts = [
+            _useful(analysis.get("hook")),
+            _useful(analysis.get("main_message")),
+            caption[:400],
+            tags, tags,
+            _useful(analysis.get("topic")),
+            content_format,
+        ]
+
     return " ".join(p for p in parts if p)

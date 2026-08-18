@@ -248,7 +248,10 @@ def analyze_pending(
         return {"analyzed": 0}
 
     # Batch the embedding call — one request for the whole page of videos.
-    signatures = [embeddings.format_signature(analysis) for _, analysis in records]
+    signatures = [
+        embeddings.format_signature(analysis, video.caption or "", video.hashtags or [])
+        for video, analysis in records
+    ]
     vectors = embeddings.embed_many(signatures)
 
     for (video, analysis), vector in zip(records, vectors):
