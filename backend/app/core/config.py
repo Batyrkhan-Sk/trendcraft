@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = 768
 
+    #: Shared secret guarding the /pipeline/* endpoints. Those routes spend real
+    #: money — Gemini calls, YouTube quota, Apify credit — so on any public
+    #: deployment they must not be reachable by anyone who finds the URL. Leave
+    #: empty for local development and the guard is disabled.
+    pipeline_token: str | None = None
+
     #: Videos analysed concurrently. Native video analysis is ~30s of mostly
     #: waiting on Gemini, so this is the single biggest lever on pipeline
     #: throughput. Raise it until you start seeing 429s from your tier.

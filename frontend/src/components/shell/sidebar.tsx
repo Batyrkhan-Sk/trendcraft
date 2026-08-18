@@ -7,6 +7,7 @@ import {
   Bookmark,
   Compass,
   Flame,
+  LayoutDashboard,
   Settings,
   Sparkles,
   TrendingUp,
@@ -15,6 +16,7 @@ import {
 import { cn } from "@/lib/format";
 
 const NAV = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/discover", label: "Discover", icon: Compass },
   { href: "/trending", label: "Trending", icon: Flame },
   { href: "/rising", label: "Rising", icon: TrendingUp },
@@ -29,7 +31,7 @@ export function Sidebar() {
 
   return (
     <aside className="sticky top-0 z-30 hidden h-dvh w-[216px] shrink-0 flex-col border-r border-line bg-canvas/80 backdrop-blur lg:flex">
-      <Link href="/" className="flex items-center gap-2.5 px-5 py-5">
+      <Link href="/dashboard" className="flex items-center gap-2.5 px-5 py-5">
         <span className="grid size-7 place-items-center rounded-lg bg-gradient-to-br from-brand to-accent">
           <Sparkles className="size-4 text-canvas" strokeWidth={2.5} />
         </span>
@@ -83,7 +85,7 @@ export function MobileNav() {
   const pathname = usePathname();
   return (
     <div className="sticky top-0 z-30 flex items-center gap-1 overflow-x-auto border-b border-line bg-canvas/90 px-3 py-2 backdrop-blur lg:hidden rail">
-      <Link href="/" className="mr-2 flex shrink-0 items-center gap-2">
+      <Link href="/dashboard" className="mr-2 flex shrink-0 items-center gap-2">
         <span className="grid size-6 place-items-center rounded-md bg-gradient-to-br from-brand to-accent">
           <Sparkles className="size-3.5 text-canvas" strokeWidth={2.5} />
         </span>

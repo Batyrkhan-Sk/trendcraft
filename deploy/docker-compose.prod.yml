@@ -1,0 +1,127 @@
+# Production overlay for a single VM (Oracle Cloud Always Free or any VPS).
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+#
+# What this changes versus local development:
+#   * Caddy terminates TLS and serves both the app and the API on ONE origin,
+#     which removes cross-origin requests entirely — no CORS, no preflight.
+#   * No source bind mounts and no --reload; images are immutable.
+#   * Nothing but Caddy publishes a host port. Postgres, Redis and the API are
+#     reachable only on the internal compose network.
+#   * Restart policies and log rotation, so the box survives reboots and does
+#     not fill its disk with JSON logs.
+services:
+  postgres:
+    # Not published: on a public VM, exposing 5432 invites credential stuffing.
+    ports: !override []
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-trendcraft}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-trendcraft}
+    restart: unless-stopped
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    ports: !override []
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    ports: !override []
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    volumes: !override []
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-trendcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-trendcraft}
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      # Same-origin through Caddy, so this is belt-and-braces rather than load-bearing.
+      CORS_ORIGINS: '["https://${DOMAIN}"]'
+      PIPELINE_TOKEN: ${PIPELINE_TOKEN:?set PIPELINE_TOKEN in .env}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      APIFY_TOKEN: ${APIFY_TOKEN:-}
+      APIFY_TIKTOK_ACTOR: ${APIFY_TIKTOK_ACTOR:-}
+      APIFY_INSTAGRAM_ACTOR: ${APIFY_INSTAGRAM_ACTOR:-}
+      LLM_MODEL: ${LLM_MODEL:-gemini-3.6-flash}
+      LLM_FAST_MODEL: ${LLM_FAST_MODEL:-gemini-3.5-flash}
+      VISION_MODEL: ${VISION_MODEL:-gemini-3.6-flash}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-gemini}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
+      MIN_CLUSTER_SIZE: ${MIN_CLUSTER_SIZE:-4}
+      CLUSTER_SIMILARITY_THRESHOLD: ${CLUSTER_SIMILARITY_THRESHOLD:-0.62}
+      TREND_HALF_LIFE_HOURS: ${TREND_HALF_LIFE_HOURS:-96}
+      ANALYSIS_CONCURRENCY: ${ANALYSIS_CONCURRENCY:-4}
+
+  worker:
+    volumes: !override []
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-trendcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-trendcraft}
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      APIFY_TOKEN: ${APIFY_TOKEN:-}
+      APIFY_TIKTOK_ACTOR: ${APIFY_TIKTOK_ACTOR:-}
+      APIFY_INSTAGRAM_ACTOR: ${APIFY_INSTAGRAM_ACTOR:-}
+      LLM_MODEL: ${LLM_MODEL:-gemini-3.6-flash}
+      LLM_FAST_MODEL: ${LLM_FAST_MODEL:-gemini-3.5-flash}
+      VISION_MODEL: ${VISION_MODEL:-gemini-3.6-flash}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-gemini}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
+      ANALYSIS_CONCURRENCY: ${ANALYSIS_CONCURRENCY:-4}
+
+  beat:
+    volumes: !override []
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-trendcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-trendcraft}
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+
+  web:
+    ports: !override []
+    restart: unless-stopped
+    logging: *logging
+    build:
+      context: ../frontend
+      args:
+        # Baked into the client bundle at build time. Relative to the domain,
+        # because Caddy proxies /api on the same origin.
+        NEXT_PUBLIC_API_URL: https://${DOMAIN}/api/v1
+    environment:
+      # Server components talk to the API directly over the compose network,
+      # skipping the proxy hop entirely.
+      API_URL: http://api:8000/api/v1
+      NEXT_PUBLIC_API_URL: https://${DOMAIN}/api/v1
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    depends_on:
+      - web
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:

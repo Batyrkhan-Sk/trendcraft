@@ -72,7 +72,7 @@ export function OnboardingFlow({ initial }: { initial: Profile | null }) {
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error();
-      router.push("/");
+      router.push("/dashboard");
       router.refresh();
     } catch {
       setError("Could not save. Check the API is running.");
@@ -84,7 +84,7 @@ export function OnboardingFlow({ initial }: { initial: Profile | null }) {
 
   return (
     <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10">
-      <Link href="/" className="flex items-center gap-2.5">
+      <Link href="/dashboard" className="flex items-center gap-2.5">
         <span className="grid size-7 place-items-center rounded-lg bg-gradient-to-br from-brand to-accent">
           <Sparkles className="size-4 text-canvas" strokeWidth={2.5} />
         </span>
@@ -301,7 +301,7 @@ export function OnboardingFlow({ initial }: { initial: Profile | null }) {
         </Button>
 
         <div className="flex items-center gap-2">
-          <Link href="/" className="text-[12.5px] text-ink-muted hover:text-ink">
+          <Link href="/dashboard" className="text-[12.5px] text-ink-muted hover:text-ink">
             Skip for now
           </Link>
           {step < STEPS.length - 1 ? (

@@ -39,6 +39,40 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
+class DailyQuotaExhausted(LLMUnavailable):
+    """The model's per-day request allowance is gone; it will not recover today."""
+
+
+#: Models known to have hit their daily cap in this process. A circuit breaker:
+#: once a model is in here, further calls fail instantly instead of spending
+#: seconds discovering the same thing. Without this, a batch of N videos issues
+#: N doomed requests per tier — which is how a day's quota gets consumed
+#: producing nothing but fallbacks.
+_EXHAUSTED_TODAY: set[str] = set()
+
+
+def is_exhausted(model: str) -> bool:
+    return model in _EXHAUSTED_TODAY
+
+
+def mark_exhausted(model: str) -> None:
+    if model not in _EXHAUSTED_TODAY:
+        logger.warning("Daily quota exhausted for %s — skipping it for this run", model)
+        _EXHAUSTED_TODAY.add(model)
+
+
+def reset_exhausted() -> None:
+    """Clear the breaker, e.g. for a long-running worker crossing midnight UTC."""
+    _EXHAUSTED_TODAY.clear()
+
+
+def is_daily_quota_error(exc: Exception) -> bool:
+    text = str(exc)
+    return "RESOURCE_EXHAUSTED" in text and any(
+        marker in text for marker in _EXHAUSTED_FOR_THE_DAY
+    )
+
+
 def _is_retryable(exc: Exception) -> bool:
     text = str(exc)
     if any(marker in text for marker in _EXHAUSTED_FOR_THE_DAY):
@@ -84,6 +118,8 @@ def structured(
     """
     client = _get_client()
     chosen = model or settings.llm_model
+    if is_exhausted(chosen):
+        raise DailyQuotaExhausted(f"{chosen} hit its daily cap earlier in this run")
     last_error: Exception | None = None
 
     for attempt in range(attempts):
@@ -101,6 +137,9 @@ def structured(
             )
         except Exception as exc:
             last_error = exc
+            if is_daily_quota_error(exc):
+                mark_exhausted(chosen)
+                raise DailyQuotaExhausted(str(exc)[:200]) from exc
             if attempt == attempts - 1 or not _is_retryable(exc):
                 raise
             delay = 2**attempt + random.uniform(0, 1)

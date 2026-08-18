@@ -1,0 +1,36 @@
+# Caddy obtains and renews TLS certificates from Let's Encrypt automatically.
+# The only prerequisite is that {$DOMAIN} already resolves to this machine.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# The API is served under the SAME origin as the app. This is the whole
+	# reason CORS never comes up in production: the browser sees one host.
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Interactive API docs. Remove this block to keep the schema private.
+	handle /docs* {
+		reverse_proxy api:8000
+	}
+	handle /openapi.json {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	header {
+		# Basic hardening. HSTS is deliberately omitted until you are certain
+		# the domain will stay on HTTPS — it is painful to unwind.
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# The hero loop and thumbnails are immutable; let browsers keep them.
+	@static path *.mp4 *.webm *.jpg *.png *.svg *.woff2
+	header @static Cache-Control "public, max-age=31536000, immutable"
+}

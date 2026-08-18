@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from app.ai import client as llm
+from app.api.guards import require_pipeline_token
 from app.connectors import all_connectors
 from app.core.config import settings
 from app.db.session import SessionLocal, get_db
@@ -11,6 +12,11 @@ from app.pipeline import runner
 from app.schemas import PipelineRunIn
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
+
+# Guard applied per-route rather than router-wide: /status is read-only and the
+# Settings page depends on it, while the routes below spend Gemini quota,
+# YouTube quota and Apify credit on every call.
+SPENDS_MONEY = [Depends(require_pipeline_token)]
 
 
 @router.get("/status")
@@ -48,7 +54,7 @@ def _run(payload: PipelineRunIn) -> None:
         )
 
 
-@router.post("/run")
+@router.post("/run", dependencies=SPENDS_MONEY)
 def run(payload: PipelineRunIn, background: BackgroundTasks) -> dict:
     """Trigger collection → analysis → clustering → scoring.
 
@@ -67,11 +73,11 @@ def run(payload: PipelineRunIn, background: BackgroundTasks) -> dict:
         )
 
 
-@router.post("/rebuild-trends")
+@router.post("/rebuild-trends", dependencies=SPENDS_MONEY)
 def rebuild(lookback_days: int = 30, db: Session = Depends(get_db)) -> dict:
     return runner.rebuild_trends(db, lookback_days=lookback_days)
 
 
-@router.post("/analyze")
+@router.post("/analyze", dependencies=SPENDS_MONEY)
 def analyze(limit: int = 50, db: Session = Depends(get_db)) -> dict:
     return runner.analyze_pending(db, limit=limit)

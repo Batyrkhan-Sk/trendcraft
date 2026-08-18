@@ -59,7 +59,7 @@ def _build_prompt(video: dict[str, Any]) -> str:
 
 def _analyze_with_video(video: dict[str, Any]) -> dict[str, Any] | None:
     """Tier 1 — multimodal pass over the actual media."""
-    if not client.available():
+    if not client.available() or client.is_exhausted(settings.vision_model):
         return None
 
     url = video.get("url") or ""
@@ -98,7 +98,13 @@ def _analyze_with_video(video: dict[str, Any]) -> dict[str, Any] | None:
         data["_tier"] = "native_video"
         return data
     except Exception as exc:
-        logger.warning("Native video analysis failed for %s: %s", video.get("external_id"), exc)
+        if client.is_daily_quota_error(exc):
+            client.mark_exhausted(settings.vision_model)
+            logger.warning("Native video tier disabled: %s hit its daily cap", settings.vision_model)
+        else:
+            logger.warning(
+                "Native video analysis failed for %s: %s", video.get("external_id"), exc
+            )
         return None
 
 
