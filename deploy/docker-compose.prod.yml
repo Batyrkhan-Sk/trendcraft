@@ -94,7 +94,8 @@ services:
     restart: unless-stopped
     logging: *logging
     build:
-      context: ../frontend
+      # Paths here are relative to the project directory, not to deploy/.
+      context: ./frontend
       args:
         # Baked into the client bundle at build time. Relative to the domain,
         # because Caddy proxies /api on the same origin.
@@ -113,7 +114,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     environment:
