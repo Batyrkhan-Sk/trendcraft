@@ -26,7 +26,12 @@ from app.db.session import SessionLocal
 from app.models import VideoAnalysis
 from app.services import clustering
 
-CANDIDATES = [0.55, 0.62, 0.70, 0.75, 0.80, 0.84, 0.88, 0.92]
+#: Candidates are derived from the corpus, not hardcoded. A fixed ladder cannot
+#: work across both embedding models and both signature strategies: hashed
+#: vectors and caption-based signatures put the interesting range near 0.2-0.35,
+#: while structural signatures under a hosted encoder push it above 0.8. Probing
+#: percentiles of the observed distribution finds the range either way.
+CANDIDATE_PERCENTILES = [75, 85, 90, 93, 95, 97, 98, 99]
 
 
 def main() -> int:
@@ -63,10 +68,16 @@ def main() -> int:
         print(f"  p{p:<5} {qs[p - 1]:.3f}")
     print(f"  max    {max(sims):.3f}\n")
 
+    # Threshold candidates from the observed distribution, plus the current value
+    # so its effect is always visible for comparison.
+    candidates = sorted({round(qs[p - 1], 3) for p in CANDIDATE_PERCENTILES}
+                        | {round(settings.cluster_similarity_threshold, 3)})
+    candidates = [c for c in candidates if c > 0]
+
     print("Clusters produced at each threshold")
     print(f"  {'threshold':<11}{'trends':>8}{'clustered':>11}{'largest':>9}  verdict")
     best = None
-    for t in CANDIDATES:
+    for t in candidates:
         clusters = clustering.cluster_embeddings(ids, vectors, threshold=t)
         n = len(clusters)
         covered = sum(c.size for c in clusters)
@@ -75,21 +86,26 @@ def main() -> int:
 
         # A single cluster swallowing most of the corpus means the threshold is
         # too permissive; dozens of tiny ones mean it is too strict.
+        coverage = covered / len(rows)
         if n == 0:
             verdict = "nothing clusters"
         elif n == 1 or share > 0.6:
             verdict = "over-merged"
+        elif coverage < 0.15:
+            # A threshold that clusters almost nothing is not a usable split,
+            # however tidy the few clusters it does produce look.
+            verdict = f"too strict ({coverage:.0%} covered)"
         elif n > len(rows) / 6:
             verdict = "fragmented"
         else:
-            verdict = "usable"
-            if best is None:
-                best = t
+            verdict = f"usable ({coverage:.0%} covered)"
+            if best is None or covered > best[1]:
+                best = (t, covered)
         print(f"  {t:<11.2f}{n:>8}{covered:>11}{largest:>9}  {verdict}")
 
     print()
     if best:
-        print(f"Suggested: CLUSTER_SIMILARITY_THRESHOLD={best}")
+        print(f"Suggested: CLUSTER_SIMILARITY_THRESHOLD={best[0]}")
         print("Set it in .env, then:")
         print("  docker compose restart api worker beat")
         print("  curl -X POST .../api/v1/pipeline/rebuild-trends -H 'X-Pipeline-Token: ...'")
