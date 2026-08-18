@@ -114,7 +114,7 @@ Then open `https://yourdomain.com`.
 
 ```bash
 cd /opt/trendcraft
-TOKEN=$(grep '^PIPELINE_TOKEN=' .env | cut -d= -f2)
+TOKEN=$(sed -n 's/^PIPELINE_TOKEN=//p' .env)   # sed, not cut: base64 padding contains '='
 
 # Verify providers before spending any quota
 docker compose exec api python -m scripts.check_keys
