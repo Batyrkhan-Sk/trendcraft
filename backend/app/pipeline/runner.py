@@ -244,8 +244,20 @@ def analyze_pending(
                 # is picked up by the next run.
                 logger.warning("Analysis failed for %s: %s", video.url, exc)
 
+    # A heuristic produced because the day's quota ran out is not a result, it is
+    # a placeholder that would outlive the wall that caused it: this function only
+    # ever selects videos with no analysis row, so writing one here means the video
+    # is never analysed properly again. Leave it pending for tomorrow instead.
+    deferred = [v for v, a in records if a.get("fallback_reason") == "quota"]
+    if deferred:
+        logger.info(
+            "Deferring %d video(s) — model quota exhausted, will retry on a later run",
+            len(deferred),
+        )
+    records = [(v, a) for v, a in records if a.get("fallback_reason") != "quota"]
+
     if not records:
-        return {"analyzed": 0}
+        return {"analyzed": 0, "deferred": len(deferred)}
 
     # Batch the embedding call — one request for the whole page of videos.
     signatures = [
@@ -281,7 +293,144 @@ def analyze_pending(
         )
 
     db.commit()
-    return {"analyzed": len(records)}
+    return {"analyzed": len(records), "deferred": len(deferred)}
+
+
+def upgrade_fallbacks(
+    db: Session,
+    limit: int = 40,
+    *,
+    allow_video: bool = True,
+    concurrency: int | None = None,
+) -> dict:
+    """Re-run the extraction ladder over analyses that bottomed out as heuristics.
+
+    ``analyze_pending`` deliberately only looks at videos with no row, so a
+    heuristic written before that rule existed is permanent unless something
+    revisits it. This is the upgrade pass the extraction docstring promises.
+
+    Ordering is by visibility rather than recency. On a daily quota measured in
+    tens, the budget should go where it changes what a person actually reads:
+    card exemplars first, then videos that belong to some trend, then the rest.
+
+    A result is only written when it beats what is already stored — a run that
+    hits the quota wall again leaves every row untouched.
+    """
+    membership = (
+        select(
+            TrendVideo.video_id.label("video_id"),
+            func.bool_or(TrendVideo.is_exemplar).label("is_exemplar"),
+        )
+        .group_by(TrendVideo.video_id)
+        .subquery()
+    )
+
+    rows = db.execute(
+        select(Video, VideoAnalysis)
+        .join(VideoAnalysis, VideoAnalysis.video_id == Video.id)
+        .outerjoin(membership, membership.c.video_id == Video.id)
+        .where(VideoAnalysis.is_fallback.is_(True))
+        .order_by(
+            func.coalesce(membership.c.is_exemplar, False).desc(),
+            (membership.c.video_id.is_not(None)).desc(),
+            Video.published_at.desc(),
+        )
+        .limit(limit)
+    ).all()
+
+    if not rows:
+        return {"upgraded": 0, "attempted": 0, "remaining": 0}
+
+    def payload_for(video: Video) -> dict:
+        return {
+            "platform": video.platform,
+            "external_id": video.external_id,
+            "url": video.url,
+            "caption": video.caption,
+            "hashtags": video.hashtags,
+            "duration_sec": video.duration_sec,
+            "niche": video.niche,
+            "sound_name": video.sound_name,
+        }
+
+    workers = max(1, min(concurrency or settings.analysis_concurrency, len(rows)))
+    upgraded: list[tuple[VideoAnalysis, Video, dict]] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                extraction.analyze_video,
+                payload_for(video),
+                allow_video=allow_video,
+                allow_llm=True,
+            ): (video, analysis)
+            for video, analysis in rows
+        }
+        for future in as_completed(futures):
+            video, analysis = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                logger.warning("Upgrade failed for %s: %s", video.url, exc)
+                continue
+            # Never overwrite a heuristic with another heuristic: it would churn
+            # the row, re-embed identical text and hide that nothing improved.
+            if result.get("is_fallback"):
+                continue
+            upgraded.append((analysis, video, result))
+
+    if not upgraded:
+        return {"upgraded": 0, "attempted": len(rows), "remaining": _fallback_count(db)}
+
+    vectors = embeddings.embed_many(
+        [
+            embeddings.format_signature(result, video.caption or "", video.hashtags or [])
+            for _, video, result in upgraded
+        ]
+    )
+
+    # strict: a short vector list would silently pair analyses with the wrong
+    # embedding, which is far worse than a loud failure.
+    for (analysis, _video, result), vector in zip(upgraded, vectors, strict=True):
+        for field in ANALYSIS_COLUMNS:
+            setattr(analysis, field, result.get(field))
+        analysis.narrative_structure = result.get("narrative_structure") or []
+        analysis.editing_patterns = result.get("editing_patterns") or []
+        analysis.key_moments = result.get("key_moments") or []
+        analysis.extraction_model = result.get("extraction_model")
+        analysis.is_fallback = False
+        analysis.embedding = vector
+
+    db.commit()
+    return {
+        "upgraded": len(upgraded),
+        "attempted": len(rows),
+        "remaining": _fallback_count(db),
+    }
+
+
+#: Scalar analysis columns copied straight across on an upgrade. The list
+#: fields and the embedding are handled separately.
+ANALYSIS_COLUMNS = (
+    "hook",
+    "topic",
+    "content_format",
+    "speaking_style",
+    "visual_style",
+    "caption_style",
+    "call_to_action",
+    "emotional_tone",
+    "audio_style",
+    "target_audience",
+    "main_message",
+    "opening_frames",
+    "production_difficulty",
+)
+
+
+def _fallback_count(db: Session) -> int:
+    return db.scalar(
+        select(func.count()).select_from(VideoAnalysis).where(VideoAnalysis.is_fallback.is_(True))
+    ) or 0
 
 
 # ---------------------------------------------------------------------------

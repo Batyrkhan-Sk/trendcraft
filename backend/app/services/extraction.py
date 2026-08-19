@@ -201,6 +201,22 @@ def _heuristic_analysis(video: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fallback_reason(allow_llm: bool) -> str:
+    """Why the ladder bottomed out at the heuristic tier.
+
+    The caller needs this to decide whether the keyword guess is worth storing.
+    A quota wall lifts at midnight UTC, but ``analyze_pending`` only ever visits
+    videos with no analysis row at all — so persisting a heuristic over a
+    temporary 429 forecloses the real analysis permanently. ``no_llm`` is the
+    one case where the heuristic genuinely is the best result available.
+    """
+    if not allow_llm or not client.available():
+        return "no_llm"
+    if any(client.is_exhausted(m) for m in (settings.vision_model, settings.llm_fast_model)):
+        return "quota"
+    return "error"
+
+
 def analyze_video(
     video: dict[str, Any], *, allow_video: bool = True, allow_llm: bool = True
 ) -> dict[str, Any]:
@@ -217,6 +233,7 @@ def analyze_video(
         result = _analyze_with_metadata(video)
     if result is None:
         result = _heuristic_analysis(video)
+        result["_fallback_reason"] = _fallback_reason(allow_llm)
 
     normalised = {field: result.get(field) for field in ANALYSIS_FIELDS}
     normalised["narrative_structure"] = list(normalised.get("narrative_structure") or [])
@@ -225,4 +242,5 @@ def analyze_video(
     normalised["production_difficulty"] = normalised.get("production_difficulty") or "medium"
     normalised["extraction_model"] = result.get("_model")
     normalised["is_fallback"] = result.get("_tier") == "heuristic"
+    normalised["fallback_reason"] = result.get("_fallback_reason")
     return normalised

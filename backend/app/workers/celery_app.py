@@ -18,6 +18,7 @@ import logging
 from celery import Celery
 from celery.schedules import crontab
 
+from app.ai import client
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.pipeline import runner
@@ -46,6 +47,13 @@ celery_app.conf.update(
         "refresh-metrics-hourly": {
             "task": "trendcraft.refresh_metrics",
             "schedule": crontab(minute=30),
+        },
+        # Once a day, just after the free-tier quota resets. The whole day's
+        # allowance goes to upgrading heuristic rows, most-visible first.
+        "upgrade-fallbacks-daily": {
+            "task": "trendcraft.upgrade_fallbacks",
+            "schedule": crontab(minute=30, hour=8),
+            "kwargs": {"limit": 40},
         },
         "rebuild-trends-nightly": {
             "task": "trendcraft.rebuild_trends",
@@ -80,6 +88,19 @@ def collect(platforms: list[str] | None = None, niches: list[str] | None = None)
 def analyze(limit: int = 40) -> dict:
     with SessionLocal() as db:
         return runner.analyze_pending(db, limit=limit)
+
+
+@celery_app.task(name="trendcraft.upgrade_fallbacks")
+def upgrade_fallbacks(limit: int = 40) -> dict:
+    """Spend the day's model quota re-analysing the most visible heuristic rows.
+
+    The exhaustion breaker is per-process and nothing else clears it, so a worker
+    that hit the wall yesterday would skip every video today without ever issuing
+    a request. Reset it here: this task is the start of a fresh quota day.
+    """
+    client.reset_exhausted()
+    with SessionLocal() as db:
+        return runner.upgrade_fallbacks(db, limit=limit)
 
 
 @celery_app.task(name="trendcraft.refresh_metrics")

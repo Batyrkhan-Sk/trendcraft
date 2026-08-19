@@ -81,3 +81,13 @@ def rebuild(lookback_days: int = 30, db: Session = Depends(get_db)) -> dict:
 @router.post("/analyze", dependencies=SPENDS_MONEY)
 def analyze(limit: int = 50, db: Session = Depends(get_db)) -> dict:
     return runner.analyze_pending(db, limit=limit)
+
+
+@router.post("/upgrade-fallbacks", dependencies=SPENDS_MONEY)
+def upgrade_fallbacks(limit: int = 40, db: Session = Depends(get_db)) -> dict:
+    """Re-analyse heuristic rows, most-visible first.
+
+    Separate from ``/analyze`` because that one only ever sees videos with no
+    analysis at all — which, once the corpus has been walked, is nearly none.
+    """
+    return runner.upgrade_fallbacks(db, limit=limit)
