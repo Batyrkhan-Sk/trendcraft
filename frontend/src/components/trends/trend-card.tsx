@@ -1,15 +1,41 @@
 import Link from "next/link";
-import { Layers, Users } from "lucide-react";
 import { Sparkline } from "@/components/charts/sparkline";
-import { Badge, Card } from "@/components/ui/primitives";
+import { Card } from "@/components/ui/primitives";
 import { GrowthDelta, StatusPill } from "@/components/trends/status-pill";
 import { VideoEmbed } from "@/components/trends/video-embed";
 import { compact, duration, percent } from "@/lib/format";
 import { STATUS_META, platformLabel } from "@/lib/meta";
 import type { TrendSummary } from "@/lib/types";
 
-export function TrendCard({ trend, showRelevance }: { trend: TrendSummary; showRelevance?: boolean }) {
+/**
+ * Which of the card's own labels the surrounding page has already established.
+ *
+ * A filtered grid repeats its own filter on every card — twenty "YouTube" chips
+ * under a YouTube filter carry no information and cost the eye a fixation each.
+ * Pages that pin a facet declare it here and the card drops that label.
+ */
+export interface TrendCardContext {
+  status?: boolean;
+  platform?: boolean;
+}
+
+export function TrendCard({
+  trend,
+  showRelevance,
+  implied,
+}: {
+  trend: TrendSummary;
+  showRelevance?: boolean;
+  implied?: TrendCardContext;
+}) {
   const meta = STATUS_META[trend.status];
+  const showStatus = !implied?.status;
+  const platforms = implied?.platform ? [] : trend.platforms.slice(0, 3);
+  const pattern = distinctPattern(trend.name, trend.format_pattern);
+  const summary = trimLeadingName(trend.summary, trend.name);
+  // A flat day is the common case; printing "+0% in 24h" under every card turns
+  // the absence of news into a line of text.
+  const hasDayMove = Math.abs(trend.growth_24h) >= 0.005;
 
   return (
     <Card hover className="group relative flex h-full flex-col overflow-hidden">
@@ -17,13 +43,14 @@ export function TrendCard({ trend, showRelevance }: { trend: TrendSummary; showR
           outside it so its play buttons are not swallowed by navigation. */}
       <Link href={`/trends/${trend.slug}`} className="flex flex-1 flex-col p-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <StatusPill status={trend.status} size="sm" />
-            {trend.platforms.slice(0, 3).map((p) => (
-              <Badge key={p} tone="outline">
-                {platformLabel(p)}
-              </Badge>
-            ))}
+          <div className="flex min-w-0 items-center gap-2 text-[11px]">
+            {showStatus ? <StatusPill status={trend.status} size="sm" variant="bare" /> : null}
+            {showStatus && platforms.length ? <span className="text-ink-faint">·</span> : null}
+            {platforms.length ? (
+              <span className="truncate text-ink-muted">
+                {platforms.map(platformLabel).join(" · ")}
+              </span>
+            ) : null}
           </div>
           <div className="shrink-0 text-right">
             <div className="tabular text-[19px] font-semibold leading-none text-ink">
@@ -35,26 +62,26 @@ export function TrendCard({ trend, showRelevance }: { trend: TrendSummary; showR
           </div>
         </div>
 
-        <h3 className="mt-3 text-[15px] font-semibold leading-snug tracking-tight text-ink">
+        <h3 className="mt-2.5 text-[15px] font-semibold leading-snug tracking-tight text-ink">
           {trend.name}
         </h3>
-        {trend.format_pattern ? (
-          <p className="mt-1 truncate font-mono text-[11.5px] text-[#a99bff]">
-            {trend.format_pattern}
-          </p>
+        {pattern ? (
+          <p className="mt-1 truncate font-mono text-[11.5px] text-[#a99bff]">{pattern}</p>
         ) : null}
-        <p className="mt-2 line-clamp-2 text-[12.5px] leading-relaxed text-ink-secondary">
-          {trend.summary}
+        <p className="mt-1.5 line-clamp-2 text-[12.5px] leading-relaxed text-ink-secondary">
+          {summary}
         </p>
 
         {/* Growth is the headline; the sparkline shows shape, the number shows size. */}
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="flex flex-col gap-0.5">
             <GrowthDelta value={trend.growth_7d} suffix="7d" />
-            <span className="tabular text-[11px] text-ink-faint">
-              {trend.growth_24h >= 0 ? "+" : ""}
-              {(trend.growth_24h * 100).toFixed(0)}% in 24h
-            </span>
+            {hasDayMove ? (
+              <span className="tabular text-[11px] text-ink-faint">
+                {trend.growth_24h >= 0 ? "+" : ""}
+                {(trend.growth_24h * 100).toFixed(0)}% in 24h
+              </span>
+            ) : null}
           </div>
           <Sparkline
             values={trend.sparkline}
@@ -64,8 +91,8 @@ export function TrendCard({ trend, showRelevance }: { trend: TrendSummary; showR
         </div>
 
         <div className="mt-3 grid grid-cols-4 gap-2 border-t border-line-soft pt-3">
-          <Metric label="Videos" value={compact(trend.video_count)} icon={<Layers className="size-3" />} />
-          <Metric label="Creators" value={compact(trend.creator_count)} icon={<Users className="size-3" />} />
+          <Metric label="Videos" value={compact(trend.video_count)} />
+          <Metric label="Creators" value={compact(trend.creator_count)} />
           <Metric label="Avg views" value={compact(trend.avg_views)} />
           <Metric label="Engage" value={percent(trend.avg_engagement_rate, 1)} />
         </div>
@@ -90,46 +117,50 @@ export function TrendCard({ trend, showRelevance }: { trend: TrendSummary; showR
       </Link>
 
       {/* Real examples, playable in place. Outside the <Link> so the play
-          buttons are not swallowed by the card's navigation. */}
+          buttons are not swallowed by the card's navigation. No caption: three
+          vertical frames with play buttons do not need to be called examples. */}
       {trend.exemplars.length ? (
-        <div className="border-t border-line-soft px-4 pb-4 pt-3">
-          <div className="mb-2 flex items-baseline justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
-              Examples
-            </span>
-            <span className="text-[10.5px] text-ink-faint">tap to play</span>
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {trend.exemplars.slice(0, 3).map((video) => (
-              <VideoEmbed
-                key={video.id}
-                video={video}
-                showStats={false}
-                className="rounded-md border border-line"
-              />
-            ))}
-          </div>
+        <div className="grid grid-cols-3 gap-px border-t border-line-soft bg-line-soft">
+          {trend.exemplars.slice(0, 3).map((video) => (
+            <VideoEmbed
+              key={video.id}
+              video={video}
+              showStats={false}
+              size="sm"
+              // Shallower than the 9:16 of the source clip: this is a teaser
+              // rail, and full-height frames would outweigh the card's numbers.
+              className="aspect-[4/5]"
+            />
+          ))}
         </div>
       ) : null}
     </Card>
   );
 }
 
-function Metric({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon?: React.ReactNode;
-}) {
+/**
+ * The clustering step frequently names a format after its own pattern string.
+ * When the two only differ in punctuation, the mono line is the title again in
+ * a second typeface.
+ */
+function distinctPattern(name: string, pattern: string | null): string | null {
+  if (!pattern) return null;
+  const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return norm(pattern) === norm(name) ? null : pattern;
+}
+
+/** Generated summaries usually open by restating the name printed above them. */
+function trimLeadingName(summary: string, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const trimmed = summary.replace(new RegExp(`^${escaped}[\\s,:—-]*`, "i"), "");
+  if (!trimmed || trimmed === summary) return summary;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.06em] text-ink-faint">
-        {icon}
-        <span className="truncate">{label}</span>
-      </div>
+      <div className="truncate text-[10px] uppercase tracking-[0.06em] text-ink-faint">{label}</div>
       <div className="tabular mt-0.5 truncate text-[13px] font-semibold text-ink">{value}</div>
     </div>
   );
@@ -148,7 +179,7 @@ export function TrendRow({ trend, rank }: { trend: TrendSummary; rank?: number }
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium text-ink">{trend.name}</div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-faint">
-          <StatusPill status={trend.status} size="sm" />
+          <StatusPill status={trend.status} size="sm" variant="bare" />
           <span className="truncate">{trend.niches.slice(0, 2).join(" · ")}</span>
         </div>
       </div>

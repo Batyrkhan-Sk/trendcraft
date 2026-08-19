@@ -38,11 +38,16 @@ export function VideoEmbed({
   video,
   className,
   showStats = true,
+  size = "md",
 }: {
   video: Video;
   className?: string;
   showStats?: boolean;
+  /** "sm" is for thumbnail strips inside cards, where a full-size play target
+      would outweigh the frame it sits on. */
+  size?: "sm" | "md";
 }) {
+  const small = size === "sm";
   const [playing, setPlaying] = useState(false);
   const src = embedUrl(video);
   const canPlay = Boolean(src);
@@ -84,11 +89,25 @@ export function VideoEmbed({
             </div>
           )}
 
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-canvas/90 via-canvas/10 to-canvas/30" />
+          {/* The scrim exists to keep the stat overlay legible. Without stats it
+              is just a veil over the creator's frame, so it stays minimal. */}
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-0",
+              showStats
+                ? "bg-gradient-to-t from-canvas/90 via-canvas/10 to-canvas/30"
+                : "bg-canvas/15 transition-colors group-hover:bg-canvas/0",
+            )}
+          />
 
           <span className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="grid size-12 place-items-center rounded-full border border-white/20 bg-canvas/60 backdrop-blur transition-transform duration-200 group-hover:scale-110">
-              <Play className="size-5 translate-x-px fill-white text-white" />
+            <span
+              className={cn(
+                "grid place-items-center rounded-full border border-white/20 bg-canvas/55 backdrop-blur transition-[transform,opacity] duration-200 group-hover:scale-110 group-hover:opacity-100",
+                small ? "size-7 opacity-70" : "size-12",
+              )}
+            >
+              <Play className={cn("translate-x-px fill-white text-white", small ? "size-3" : "size-5")} />
             </span>
           </span>
 

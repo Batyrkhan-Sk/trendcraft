@@ -48,6 +48,13 @@ export default async function DiscoverPage({
   const params = await searchParams;
   const data = await getTrends(buildQuery(params, { limit: "48" }));
 
+  // Anything the viewer filtered on is true of every card below, so the cards
+  // stop repeating it back at them.
+  const implied = {
+    platform: Boolean(params.platform),
+    status: Boolean(params.status),
+  };
+
   return (
     <PageShell wide>
       <PageHeader
@@ -70,7 +77,7 @@ export default async function DiscoverPage({
       {data.items.length ? (
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {data.items.map((trend) => (
-            <TrendCard key={trend.id} trend={trend} />
+            <TrendCard key={trend.id} trend={trend} implied={implied} />
           ))}
         </div>
       ) : (

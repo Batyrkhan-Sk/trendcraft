@@ -8,26 +8,39 @@ import type { Level, TrendStatus } from "@/lib/types";
  * Icon and text always ship together: two of the four status hues (growing green,
  * declining red) are indistinguishable under deuteranopia, so colour is a
  * reinforcement here and never the signal.
+ *
+ * The "bare" variant drops the chip chrome and keeps only the coloured icon and
+ * label. Cards in a grid repeat this badge once per card, and a dozen bordered
+ * chips read as a pattern of boxes long before any of them read as a status.
  */
 export function StatusPill({
   status,
   size = "md",
+  variant = "chip",
   className,
 }: {
   status: TrendStatus;
   size?: "sm" | "md";
+  variant?: "chip" | "bare";
   className?: string;
 }) {
   const meta = STATUS_META[status];
   const Icon = meta.icon;
+  const bare = variant === "bare";
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border font-medium",
-        size === "sm" ? "px-1.5 py-0.5 text-[10.5px]" : "px-2 py-1 text-[11.5px]",
+        "inline-flex items-center gap-1 font-medium",
+        !bare && "rounded-md border",
+        !bare && (size === "sm" ? "px-1.5 py-0.5" : "px-2 py-1"),
+        size === "sm" ? "text-[10.5px]" : "text-[11.5px]",
         className,
       )}
-      style={{ color: meta.color, background: meta.tint, borderColor: meta.ring }}
+      style={
+        bare
+          ? { color: meta.color }
+          : { color: meta.color, background: meta.tint, borderColor: meta.ring }
+      }
     >
       <Icon className={size === "sm" ? "size-3" : "size-3.5"} strokeWidth={2.4} />
       {meta.label}

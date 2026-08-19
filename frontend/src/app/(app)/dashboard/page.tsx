@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Bookmark, Compass, Layers, Sparkles, TrendingUp, Users, Wand2 } from "lucide-react";
+import { ArrowRight, Bookmark, Compass, Wand2 } from "lucide-react";
 import { PageHeader, PageShell } from "@/components/shell/page-header";
 import { TrendCard, TrendRow } from "@/components/trends/trend-card";
 import { Button, Card, EmptyState, SectionLabel } from "@/components/ui/primitives";
@@ -43,40 +43,38 @@ export default async function DashboardPage() {
             title="No trends computed yet"
             description="Run the pipeline to collect videos, analyse them and cluster them into formats. Until then there is nothing to rank."
             action={
-              <Link href="/settings">
-                <Button variant="primary">Open pipeline settings</Button>
+              <Link href="/onboarding">
+                <Button variant="primary">Set up your profile</Button>
               </Link>
             }
           />
         </div>
       ) : (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {/* One strip rather than four cards: these four numbers are read
+              together, and three extra borders only chop that reading up. */}
+          <Card className="mt-6 grid grid-cols-2 gap-px overflow-hidden bg-line-soft lg:grid-cols-4">
             <StatTile
-              icon={Layers}
               label="Tracked formats"
               value={compact(stats.tracked_trends)}
               sub={`${stats.rising_count} still rising`}
             />
             <StatTile
-              icon={Sparkles}
               label="Videos analysed"
               value={compact(stats.videos_analyzed)}
               sub="across all platforms"
             />
             <StatTile
-              icon={Users}
               label="Creators tracked"
               value={compact(stats.creators_tracked)}
               sub="distinct accounts"
             />
             <StatTile
-              icon={TrendingUp}
               label="Avg opportunity"
               value={`${stats.avg_opportunity}`}
               sub="across tracked formats"
             />
-          </div>
+          </Card>
 
           {!stats.profile_complete ? (
             <Card className="mt-4 flex flex-wrap items-center justify-between gap-3 border-brand-line bg-brand-soft p-4">
@@ -201,28 +199,15 @@ export default async function DashboardPage() {
   );
 }
 
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  sub: string;
-}) {
+function StatTile({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-ink-muted">
-        <Icon className="size-3.5" />
-        {label}
-      </div>
+    <div className="bg-surface p-4">
+      <div className="text-[11px] uppercase tracking-[0.08em] text-ink-muted">{label}</div>
       <div className="tabular mt-2 text-[24px] font-semibold leading-none tracking-tight text-ink">
         {value}
       </div>
       <div className="mt-1.5 text-[11.5px] text-ink-faint">{sub}</div>
-    </Card>
+    </div>
   );
 }
 
