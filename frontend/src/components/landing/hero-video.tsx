@@ -45,7 +45,7 @@ export function HeroVideo() {
         preload="metadata"
         className="size-full object-cover"
         style={{
-          filter: "saturate(0.62) hue-rotate(-18deg) brightness(0.78) contrast(1.05)",
+          filter: "saturate(2.62) hue-rotate(-32deg) brightness(0.78) contrast(7.05)",
           opacity: 0.5,
         }}
       >
